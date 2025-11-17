@@ -25,7 +25,4 @@ O programa imprime CSV na saída padrão com colunas:caso pode ser rgm ou aleato
 - Altere os tamanhos em src/main.c (array sizes[]) se quiser mais pontos de medição.
 
 
-## Discussão (sugestão de conteúdo a incluir no README final de entrega)
-- Explicar por que Quick/Merge tendem a O(n log n) e Insertion O(n²).
-- Mostrar tabelas/plots (exporte o CSV e gere gráficos externamente).
-- Indicar sensibilidade a quase-ordenados (Insertion melhora) e a reversos (Quick pode ter piora sem pivot aleatório).
+
