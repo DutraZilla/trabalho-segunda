@@ -1,0 +1,326 @@
+// main.c
+
+
+int main(int argc, char **argv) {
+srand((unsigned)time(NULL));
+if (argc < 2) {
+fprintf(stderr, "Uso: %s <RGM-as-string>\nEx: %s 2170246\n", argv[0], argv[0]);
+return 1;
+}
+
+
+const char *rgm = argv[1];
+size_t rgm_n;
+int *rgm_arr = digits_from_rgm(rgm, &rgm_n);
+if (rgm_n == 0) {
+fprintf(stderr, "RGM não contém dígitos válidos.\n");
+return 1;
+}
+
+
+// Methods to run
+typedef struct { const char *name; void (*fn)(int*, size_t, Metrics*); } Method;
+Method methods[] = {
+{"insertion", insertion_sort},
+{"merge", merge_sort},
+{"quick", quick_sort}
+};
+const int nmethods = sizeof(methods)/sizeof(methods[0]);
+
+
+// CSV header
+printf("metodo,N,caso,passos_cmp,passos_swap,tempo_ms\n");
+
+
+// First: run on RGM (caso=rgm)
+for (int i = 0; i < nmethods; ++i) {
+Metrics m = {0,0};
+double avg_ms = run_sort_and_time(methods[i].fn, rgm_arr, rgm_n, &m);
+// average steps
+m.steps_cmp /= REPEATS;
+m.steps_swap /= REPEATS;
+printf("%s,%zu,rgm,%lld,%lld,%.3f\n",
+methods[i].name, rgm_n, m.steps_cmp, m.steps_swap, avg_ms);
+}
+
+
+// Benchmark sizes (você pode ajustar os tamanhos)
+size_t sizes[] = {100, 1000, 10000};
+const int nsizes = sizeof(sizes)/sizeof(sizes[0]);
+
+
+for (int s = 0; s < nsizes; ++s) {
+size_t N = sizes[s];
+int *base = make_random_array(N);
+for (int i = 0; i < nmethods; ++i) {
+Metrics m = {0,0};
+double avg_ms = run_sort_and_time(methods[i].fn, base, N, &m);
+m.steps_cmp /= REPEATS;
+m.steps_swap /= REPEATS;
+printf("%s,%zu,aleatorio,%lld,%lld,%.3f\n",
+methods[i].name, N, m.steps_cmp, m.steps_swap, avg_ms);
+}
+free(base);
+}
+
+
+free(rgm_arr);
+return 0;
+}
+// sorts.h
+#ifndef SORTS_H
+#define SORTS_H
+
+#include <stddef.h>
+
+typedef struct { long long steps_cmp; long long steps_swap; } Metrics;
+
+void reset_metrics(Metrics *m);
+
+void insertion_sort(int *v, size_t n, Metrics *m);
+void merge_sort(int *v, size_t n, Metrics *m);
+void quick_sort(int *v, size_t n, Metrics *m);
+
+#endif // SORTS_H
+✅ 📁 src/sorts.c
+c
+Copiar código
+// sorts.c
+#include <stdlib.h>
+#include <string.h>
+#include "sorts.h"
+
+#define COUNT_CMP(m) ((m)->steps_cmp++)
+#define COUNT_SWAP(m) ((m)->steps_swap++)
+
+void reset_metrics(Metrics *m) {
+    m->steps_cmp = 0;
+    m->steps_swap = 0;
+}
+
+/* ---------------- Insertion Sort ---------------- */
+void insertion_sort(int *v, size_t n, Metrics *m) {
+    for (size_t i = 1; i < n; ++i) {
+        int key = v[i];
+        size_t j = i;
+
+        while (j > 0) {
+            COUNT_CMP(m);
+            if (v[j-1] > key) {
+                v[j] = v[j-1];
+                COUNT_SWAP(m);
+                j--;
+            } else break;
+        }
+        v[j] = key;
+        COUNT_SWAP(m);
+    }
+}
+
+/* ---------------- Merge Sort ---------------- */
+static void merge_inplace(int *v, int *tmp, size_t l, size_t mpos, size_t r, Metrics *m) {
+    size_t i = l, j = mpos, k = l;
+
+    while (i < mpos && j <= r) {
+        COUNT_CMP(m);
+        if (v[i] <= v[j]) {
+            tmp[k++] = v[i++];
+            COUNT_SWAP(m);
+        } else {
+            tmp[k++] = v[j++];
+            COUNT_SWAP(m);
+        }
+    }
+
+    while (i < mpos) { tmp[k++] = v[i++]; COUNT_SWAP(m); }
+    while (j <= r) { tmp[k++] = v[j++]; COUNT_SWAP(m); }
+
+    for (k = l; k <= r; ++k) {
+        v[k] = tmp[k];
+        COUNT_SWAP(m);
+    }
+}
+
+static void merge_rec(int *v, int *tmp, size_t l, size_t r, Metrics *m) {
+    if (l >= r) return;
+    size_t mid = l + (r - l) / 2;
+
+    merge_rec(v, tmp, l, mid, m);
+    merge_rec(v, tmp, mid + 1, r, m);
+    merge_inplace(v, tmp, l, mid + 1, r, m);
+}
+
+void merge_sort(int *v, size_t n, Metrics *m) {
+    if (n == 0) return;
+    int *tmp = malloc(n * sizeof(int));
+    if (!tmp) return;
+    merge_rec(v, tmp, 0, n - 1, m);
+    free(tmp);
+}
+
+/* ---------------- Quick Sort (Lomuto) ---------------- */
+static size_t partition_lomuto(int *v, size_t low, size_t high, Metrics *m) {
+    int pivot = v[high];
+    size_t i = low;
+
+    for (size_t j = low; j < high; j++) {
+        COUNT_CMP(m);
+        if (v[j] < pivot) {
+            int t = v[i]; v[i] = v[j]; v[j] = t;
+            COUNT_SWAP(m);
+            i++;
+        }
+    }
+
+    int t = v[i]; v[i] = v[high]; v[high] = t;
+    COUNT_SWAP(m);
+
+    return i;
+}
+
+static void quick_rec(int *v, size_t low, size_t high, Metrics *m) {
+    if (low < high) {
+        size_t p = partition_lomuto(v, low, high, m);
+        if (p > 0) quick_rec(v, low, p - 1, m);
+        quick_rec(v, p + 1, high, m);
+    }
+}
+
+void quick_sort(int *v, size_t n, Metrics *m) {
+    if (n == 0) return;
+    quick_rec(v, 0, n - 1, m);
+}
+✅ 📁 src/main.c
+c
+Copiar código
+// main.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include "sorts.h"
+
+#define REPEATS 5
+
+static double run_sort_and_time(void (*fn)(int*, size_t, Metrics*), int *arr, size_t n, Metrics *m) {
+    Metrics local;
+    double sum_ms = 0.0;
+
+    for (int r = 0; r < REPEATS; r++) {
+        int *tmp = malloc(n * sizeof(int));
+        memcpy(tmp, arr, n * sizeof(int));
+
+        reset_metrics(&local);
+        clock_t t0 = clock();
+        fn(tmp, n, &local);
+        clock_t t1 = clock();
+
+        sum_ms += (1000.0 * (t1 - t0)) / CLOCKS_PER_SEC;
+
+        m->steps_cmp += local.steps_cmp;
+        m->steps_swap += local.steps_swap;
+
+        free(tmp);
+    }
+
+    return sum_ms / REPEATS;
+}
+
+static int *make_random_array(size_t n) {
+    int *a = malloc(n * sizeof(int));
+    for (size_t i = 0; i < n; i++) a[i] = rand();
+    return a;
+}
+
+static int *digits_from_rgm(const char *rgm, size_t *out_n) {
+    size_t len = strlen(rgm);
+    int *v = malloc(len * sizeof(int));
+    size_t k = 0;
+    for (size_t i = 0; i < len; i++)
+        if (rgm[i] >= '0' && rgm[i] <= '9')
+            v[k++] = rgm[i] - '0';
+
+    *out_n = k;
+    return v;
+}
+
+int main(int argc, char **argv) {
+    srand(time(NULL));
+
+    if (argc < 2) {
+        printf("Uso: %s <RGM>\n", argv[0]);
+        return 1;
+    }
+
+    size_t rgm_n;
+    int *rgm_arr = digits_from_rgm(argv[1], &rgm_n);
+
+    typedef struct { const char *name; void (*fn)(int*, size_t, Metrics*); } Method;
+
+    Method methods[] = {
+        {"insertion", insertion_sort},
+        {"merge",     merge_sort},
+        {"quick",     quick_sort}
+    };
+
+    int nmethods = sizeof(methods) / sizeof(methods[0]);
+
+    printf("metodo,N,caso,passos_cmp,passos_swap,tempo_ms\n");
+
+    // Case RGM
+    for (int i = 0; i < nmethods; i++) {
+        Metrics m = {0,0};
+        double ms = run_sort_and_time(methods[i].fn, rgm_arr, rgm_n, &m);
+        m.steps_cmp /= REPEATS;
+        m.steps_swap /= REPEATS;
+
+        printf("%s,%zu,rgm,%lld,%lld,%.3f\n",
+               methods[i].name, rgm_n, m.steps_cmp, m.steps_swap, ms);
+    }
+
+    // Random benchmark
+    size_t sizes[] = {100, 1000, 10000};
+    int nsizes = sizeof(sizes) / sizeof(sizes[0]);
+
+    for (int s = 0; s < nsizes; s++) {
+        size_t N = sizes[s];
+        int *base = make_random_array(N);
+
+        for (int i = 0; i < nmethods; i++) {
+            Metrics m = {0,0};
+            double ms = run_sort_and_time(methods[i].fn, base, N, &m);
+            m.steps_cmp /= REPEATS;
+            m.steps_swap /= REPEATS;
+
+            printf("%s,%zu,aleatorio,%lld,%lld,%.3f\n",
+                   methods[i].name, N, m.steps_cmp, m.steps_swap, ms);
+        }
+        free(base);
+    }
+
+    free(rgm_arr);
+    return 0;
+}
+✅ 📁 Makefile
+makefile
+Copiar código
+CC = gcc
+CFLAGS = -std=c11 -O1 -Wall -Wextra
+SRC = src
+OBJ = $(SRC)/main.o $(SRC)/sorts.o
+
+all: ordena
+
+ordena: $(OBJ)
+	$(CC) $(CFLAGS) -o ordena $(OBJ)
+
+$(SRC)/main.o: $(SRC)/main.c $(SRC)/sorts.h
+	$(CC) $(CFLAGS) -c $(SRC)/main.c -o $(SRC)/main.o
+
+$(SRC)/sorts.o: $(SRC)/sorts.c $(SRC)/sorts.h
+	$(CC) $(CFLAGS) -c $(SRC)/sorts.c -o $(SRC)/sorts.o
+
+clean:
+	rm -f $(SRC)/*.o ordena
+
+.PHONY: all clean
